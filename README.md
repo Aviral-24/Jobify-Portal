@@ -14,6 +14,10 @@ This project demonstrates a complete real-world application flow: frontend UI, b
 ## Tech used
 - Frontend: React with Vite
 - Backend: Node.js and Express
+<<<<<<< HEAD
 - Database: MongoDB
+=======
+- Database: MySQL
+>>>>>>> 440defff6ad92cc1e5f093cd931a7f50f14032fe
 - Authentication: JWT
 - Styling: CSS
