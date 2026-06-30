@@ -5,7 +5,8 @@ import {
   UnauthorizedError,
 } from '../errors/customErrors.js';
 import { JOB_STATUS, JOB_TYPE } from '../utils/constants.js';
-import { query } from '../db.js';
+import Job from '../models/Job.js';
+import User from '../models/User.js';
 
 const withValidationErrors = (validateValues) => {
   return [
@@ -44,14 +45,11 @@ export const validateJobInput = withValidationErrors([
 
 export const validateIdParam = withValidationErrors([
   param('id')
-    .isInt({ gt: 0 })
-    .withMessage('invalid job id')
     .custom(async (value, { req }) => {
-      const jobs = await query('SELECT * FROM jobs WHERE id = ?', [value]);
-      if (!jobs.length) throw new NotFoundError(`no job with id ${value}`);
-      const job = jobs[0];
+      const job = await Job.findById(value);
+      if (!job) throw new NotFoundError(`no job with id ${value}`);
       const isAdmin = req.user.role === 'admin';
-      const isOwner = Number(req.user.userId) === job.createdBy;
+      const isOwner = req.user.userId === job.createdBy.toString();
 
       if (!isAdmin && !isOwner)
         throw new UnauthorizedError('not authorized to access this route');
@@ -67,8 +65,8 @@ export const validateRegisterInput = withValidationErrors([
     .isEmail()
     .withMessage('invalid email format')
     .custom(async (email) => {
-      const users = await query('SELECT id FROM users WHERE email = ?', [email]);
-      if (users.length) {
+      const user = await User.findOne({ email });
+      if (user) {
         throw new BadRequestError('email already exists');
       }
     }),
@@ -98,8 +96,8 @@ export const validateUpdateUserInput = withValidationErrors([
     .isEmail()
     .withMessage('invalid email format')
     .custom(async (email, { req }) => {
-      const users = await query('SELECT id FROM users WHERE email = ?', [email]);
-      if (users.length && users[0].id !== Number(req.user.userId)) {
+      const user = await User.findOne({ email });
+      if (user && user._id.toString() !== req.user.userId) {
         throw new BadRequestError('email already exists');
       }
     }),

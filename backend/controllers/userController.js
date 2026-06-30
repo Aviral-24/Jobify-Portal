@@ -1,21 +1,22 @@
 import { StatusCodes } from 'http-status-codes';
 import cloudinary from 'cloudinary';
 import { formatImage } from '../middleware/multerMiddleware.js';
-import { query, execute } from '../db.js';
+import User from '../models/User.js';
+import Job from '../models/Job.js';
 
 export const getCurrentUser = async (req, res) => {
-  const [user] = await query('SELECT * FROM users WHERE id = ?', [req.user.userId]);
+  const user = await User.findById(req.user.userId);
   if (!user) throw new Error('User not found');
-  delete user.password;
+  user.password = undefined;
   res.status(StatusCodes.OK).json({ user });
 };
+
 export const getApplicationStats = async (req, res) => {
-  const usersResult = await query('SELECT COUNT(*) AS users FROM users');
-  const jobsResult = await query('SELECT COUNT(*) AS jobs FROM jobs');
-  res
-    .status(StatusCodes.OK)
-    .json({ users: usersResult[0].users, jobs: jobsResult[0].jobs });
+  const users = await User.countDocuments();
+  const jobs = await Job.countDocuments();
+  res.status(StatusCodes.OK).json({ users, jobs });
 };
+
 export const updateUser = async (req, res) => {
   const newUser = { ...req.body };
   delete newUser.password;
@@ -28,20 +29,15 @@ export const updateUser = async (req, res) => {
     newUser.avatarPublicId = response.public_id;
   }
 
-  const fields = [];
-  const params = [];
-  Object.entries(newUser).forEach(([key, value]) => {
-    fields.push(`${key} = ?`);
-    params.push(value);
+  const user = await User.findById(req.user.userId);
+
+  const updatedUser = await User.findByIdAndUpdate(req.user.userId, newUser, {
+    new: true,
+    runValidators: true,
   });
-  params.push(req.user.userId);
 
-  const [existingUser] = await query('SELECT * FROM users WHERE id = ?', [req.user.userId]);
-
-  await execute(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, params);
-
-  if (req.file && existingUser?.avatarPublicId) {
-    await cloudinary.v2.uploader.destroy(existingUser.avatarPublicId);
+  if (req.file && user?.avatarPublicId) {
+    await cloudinary.v2.uploader.destroy(user.avatarPublicId);
   }
 
   res.status(StatusCodes.OK).json({ msg: 'update user' });

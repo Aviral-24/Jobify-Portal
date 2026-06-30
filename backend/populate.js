@@ -2,52 +2,56 @@ import { readFile } from 'fs/promises';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
-import { initDB, query, execute } from './db.js';
+import mongoose from 'mongoose';
 import { hashPassword } from './utils/passwordUtils.js';
+import User from './models/User.js';
+import Job from './models/Job.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 dotenv.config({ path: resolve(__dirname, '.env') });
 
 try {
-  await initDB();
+  const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/jobify';
+  await mongoose.connect(mongoURI);
+  console.log('Connected to MongoDB');
 
-  let [user] = await query('SELECT * FROM users WHERE email = ?', ['john@gmail.com']);
+  let user = await User.findOne({ email: 'john@gmail.com' });
   if (!user) {
     const hashedPassword = await hashPassword('password123');
-    const result = await execute(
-      'INSERT INTO users (name, email, password, location, lastName, role) VALUES (?, ?, ?, ?, ?, ?)',
-      ['John Doe', 'john@gmail.com', hashedPassword, 'my city', 'Doe', 'admin']
-    );
-    [user] = await query('SELECT * FROM users WHERE id = ?', [result.insertId]);
+    user = new User({
+      name: 'John Doe',
+      email: 'john@gmail.com',
+      password: hashedPassword,
+      location: 'my city',
+      lastName: 'Doe',
+      role: 'admin',
+    });
+    await user.save();
   }
 
   const jsonJobs = JSON.parse(
     await readFile(new URL('./utils/mockData.json', import.meta.url))
   );
-  const jobs = jsonJobs.map((job) => {
-    return [
-      job.company,
-      job.position,
-      job.jobStatus,
-      job.jobType,
-      job.jobLocation,
-      user.id,
-    ];
-  });
 
-  await execute('DELETE FROM jobs WHERE createdBy = ?', [user.id]);
+  await Job.deleteMany({ createdBy: user._id });
 
-  for (const jobRow of jobs) {
-    await execute(
-      'INSERT INTO jobs (company, position, jobStatus, jobType, jobLocation, createdBy) VALUES (?, ?, ?, ?, ?, ?)',
-      jobRow
-    );
-  }
+  const jobs = jsonJobs.map((job) => ({
+    company: job.company,
+    position: job.position,
+    jobStatus: job.jobStatus,
+    jobType: job.jobType,
+    jobLocation: job.jobLocation,
+    createdBy: user._id,
+  }));
+
+  await Job.insertMany(jobs);
 
   console.log('Success!!!');
+  await mongoose.connection.close();
   process.exit(0);
 } catch (error) {
   console.log(error);
   process.exit(1);
 }
+

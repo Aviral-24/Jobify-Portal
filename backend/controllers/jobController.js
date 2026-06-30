@@ -1,49 +1,41 @@
 import { StatusCodes } from 'http-status-codes';
 import day from 'dayjs';
-import { query, execute } from '../db.js';
+import Job from '../models/Job.js';
 
 export const getAllJobs = async (req, res) => {
   const { search, jobStatus, jobType, sort } = req.query;
 
-  let whereClause = 'WHERE createdBy = ?';
-  const params = [req.user.userId];
+  const queryObj = { createdBy: req.user.userId };
 
   if (search) {
-    whereClause += ' AND (position LIKE ? OR company LIKE ?)';
-    params.push(`%${search}%`, `%${search}%`);
+    queryObj.$or = [
+      { position: { $regex: search, $options: 'i' } },
+      { company: { $regex: search, $options: 'i' } },
+    ];
   }
 
   if (jobStatus && jobStatus !== 'all') {
-    whereClause += ' AND jobStatus = ?';
-    params.push(jobStatus);
+    queryObj.jobStatus = jobStatus;
   }
+
   if (jobType && jobType !== 'all') {
-    whereClause += ' AND jobType = ?';
-    params.push(jobType);
+    queryObj.jobType = jobType;
   }
 
   const sortOptions = {
-    newest: 'createdAt DESC',
-    oldest: 'createdAt ASC',
-    'a-z': 'position ASC',
-    'z-a': 'position DESC',
+    newest: '-createdAt',
+    oldest: 'createdAt',
+    'a-z': 'position',
+    'z-a': '-position',
   };
 
   const sortKey = sortOptions[sort] || sortOptions.newest;
   const page = Number(req.query.page) || 1;
   const limit = Number(req.query.limit) || 10;
-  const offset = (page - 1) * limit;
+  const skip = (page - 1) * limit;
 
-  const jobs = await query(
-    `SELECT * FROM jobs ${whereClause} ORDER BY ${sortKey} LIMIT ? OFFSET ?`,
-    [...params, limit, offset]
-  );
-
-  const countResult = await query(
-    `SELECT COUNT(*) AS totalJobs FROM jobs ${whereClause}`,
-    params
-  );
-  const totalJobs = countResult[0]?.totalJobs || 0;
+  const jobs = await Job.find(queryObj).sort(sortKey).skip(skip).limit(limit);
+  const totalJobs = await Job.countDocuments(queryObj);
   const numOfPages = Math.ceil(totalJobs / limit);
 
   res
@@ -60,49 +52,46 @@ export const createJob = async (req, res) => {
     jobLocation = 'my city',
   } = req.body;
 
-  const result = await execute(
-    'INSERT INTO jobs (company, position, jobStatus, jobType, jobLocation, createdBy) VALUES (?, ?, ?, ?, ?, ?)',
-    [company, position, jobStatus, jobType, jobLocation, req.user.userId]
-  );
+  const job = new Job({
+    company,
+    position,
+    jobStatus,
+    jobType,
+    jobLocation,
+    createdBy: req.user.userId,
+  });
 
-  const [job] = await query('SELECT * FROM jobs WHERE id = ?', [result.insertId]);
-  res.status(StatusCodes.CREATED).json({ job });
+  const newJob = await job.save();
+  res.status(StatusCodes.CREATED).json({ job: newJob });
 };
 
 export const getJob = async (req, res) => {
-  const [job] = await query('SELECT * FROM jobs WHERE id = ?', [req.params.id]);
+  const job = await Job.findById(req.params.id);
   res.status(StatusCodes.OK).json({ job });
 };
 
 export const updateJob = async (req, res) => {
-  const fields = [];
-  const params = [];
-  Object.entries(req.body).forEach(([key, value]) => {
-    fields.push(`${key} = ?`);
-    params.push(value);
+  const job = await Job.findByIdAndUpdate(req.params.id, req.body, {
+    new: true,
+    runValidators: true,
   });
-  params.push(req.params.id);
-
-  await execute(`UPDATE jobs SET ${fields.join(', ')} WHERE id = ?`, params);
-  const [job] = await query('SELECT * FROM jobs WHERE id = ?', [req.params.id]);
 
   res.status(StatusCodes.OK).json({ msg: 'job modified', job });
 };
 
 export const deleteJob = async (req, res) => {
-  const [job] = await query('SELECT * FROM jobs WHERE id = ?', [req.params.id]);
-  await execute('DELETE FROM jobs WHERE id = ?', [req.params.id]);
+  const job = await Job.findByIdAndDelete(req.params.id);
   res.status(StatusCodes.OK).json({ msg: 'job deleted', job });
 };
 
 export const showStats = async (req, res) => {
-  const statsResult = await query(
-    'SELECT jobStatus, COUNT(*) AS count FROM jobs WHERE createdBy = ? GROUP BY jobStatus',
-    [req.user.userId]
-  );
+  const statsResult = await Job.aggregate([
+    { $match: { createdBy: req.user.userId } },
+    { $group: { _id: '$jobStatus', count: { $sum: 1 } } },
+  ]);
 
   const stats = statsResult.reduce((acc, curr) => {
-    acc[curr.jobStatus] = curr.count;
+    acc[curr._id] = curr.count;
     return acc;
   }, {});
 
@@ -112,25 +101,34 @@ export const showStats = async (req, res) => {
     declined: stats.declined || 0,
   };
 
-  const monthlyApplicationsResult = await query(
-    `SELECT YEAR(createdAt) AS year, MONTH(createdAt) AS month, COUNT(*) AS count
-     FROM jobs
-     WHERE createdBy = ?
-     GROUP BY YEAR(createdAt), MONTH(createdAt)
-     ORDER BY year DESC, month DESC
-     LIMIT 6`,
-    [req.user.userId]
-  );
+  const monthlyApplications = await Job.aggregate([
+    { $match: { createdBy: req.user.userId } },
+    {
+      $group: {
+        _id: {
+          year: { $year: '$createdAt' },
+          month: { $month: '$createdAt' },
+        },
+        count: { $sum: 1 },
+      },
+    },
+    {
+      $sort: { '_id.year': -1, '_id.month': -1 },
+    },
+    {
+      $limit: 6,
+    },
+  ]);
 
-  const monthlyApplications = monthlyApplicationsResult
+  const formattedMonthlyApplications = monthlyApplications
     .map((item) => {
       const date = day()
-        .month(item.month - 1)
-        .year(item.year)
+        .month(item._id.month - 1)
+        .year(item._id.year)
         .format('MMM YY');
       return { date, count: item.count };
     })
     .reverse();
 
-  res.status(StatusCodes.OK).json({ defaultStats, monthlyApplications });
+  res.status(StatusCodes.OK).json({ defaultStats, monthlyApplications: formattedMonthlyApplications });
 };

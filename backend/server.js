@@ -8,7 +8,7 @@ import helmet from 'helmet';
 import mongoSanitize from 'express-mongo-sanitize';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { initDB } from './db.js';
+import connectDB from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '.env') });
@@ -64,7 +64,7 @@ app.use(errorHandlerMiddleware);
 const port = process.env.PORT || 5100;
 
 try {
-  await initDB();
+  await connectDB();
   app.listen(port, () => {
     console.log(`server running on PORT ${port}...`);
   });
