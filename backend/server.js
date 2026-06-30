@@ -9,7 +9,7 @@ import mongoSanitize from 'express-mongo-sanitize';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import connectDB from './db.js';
-import cors from 'cors'; // 🔥 ADDED CORS
+import cors from 'cors';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '.env') });
@@ -31,14 +31,13 @@ cloudinary.config({
   api_secret: process.env.CLOUD_API_SECRET,
 });
 
-// 🔥 CORS setup (Vercel (Frontend) se Render (Backend) API call karne aur Cookies bhejane ke liye)
 app.use(cors({
   origin: [
-    'http://localhost:5173', // Local frontend ke liye (Vite default)
-    'http://localhost:3000', // Local frontend ke liye (React default)
-    process.env.FRONTEND_URL // Vercel link ke liye
+    'http://localhost:5173', // Local frontend ke liye
+    'http://localhost:3000', // Local frontend ke liye
+    'https://jobify-portal-two.vercel.app' 
   ], 
-  credentials: true, // Important: Iske bina frontend par JWT cookies set nahi hongi
+  credentials: true, 
 }));
 
 if (process.env.NODE_ENV === 'development') {
@@ -50,7 +49,7 @@ app.use(express.json());
 app.use(helmet());
 app.use(mongoSanitize());
 
-// ✅ Welcome Route (Backend Check karne ke liye)
+//  Welcome Route
 app.get('/', (req, res) => {
   res.send('Jobify Backend is Running perfectly! 🚀');
 });
