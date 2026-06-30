@@ -8,11 +8,15 @@ dotenv.config({ path: resolve(__dirname, '.env') });
 
 export const connectDB = async () => {
   try {
-    const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/jobify';
-    await mongoose.connect(mongoURI);
-    console.log('Connected to MongoDB');
+    // 'localhost' ki jagah '127.0.0.1' ka use karna modern Node.js versions ke liye best practice hai
+    const mongoURI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/jobify';
+    
+    const conn = await mongoose.connect(mongoURI);
+    
+    // Ye console.log tumhe exactly batayega ki connection local par hai ya Cloud (Atlas) par
+    console.log(`✅ Connected to MongoDB: ${conn.connection.host}`);
   } catch (error) {
-    console.log('Error connecting to MongoDB:', error);
+    console.error('❌ Error connecting to MongoDB:', error.message);
     process.exit(1);
   }
 };

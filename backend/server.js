@@ -9,6 +9,7 @@ import mongoSanitize from 'express-mongo-sanitize';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import connectDB from './db.js';
+import cors from 'cors'; // 🔥 ADDED CORS
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '.env') });
@@ -30,35 +31,45 @@ cloudinary.config({
   api_secret: process.env.CLOUD_API_SECRET,
 });
 
+// 🔥 CORS setup (Vercel (Frontend) se Render (Backend) API call karne aur Cookies bhejane ke liye)
+app.use(cors({
+  origin: [
+    'http://localhost:5173', // Local frontend ke liye (Vite default)
+    'http://localhost:3000', // Local frontend ke liye (React default)
+    process.env.FRONTEND_URL // Vercel link ke liye
+  ], 
+  credentials: true, // Important: Iske bina frontend par JWT cookies set nahi hongi
+}));
+
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
-app.use(express.static(path.resolve(__dirname, '../client/dist')));
+
 app.use(cookieParser());
 app.use(express.json());
 app.use(helmet());
 app.use(mongoSanitize());
 
+// ✅ Welcome Route (Backend Check karne ke liye)
 app.get('/', (req, res) => {
-  res.send('Hello World');
+  res.send('Jobify Backend is Running perfectly! 🚀');
 });
 
 app.get('/api/v1/test', (req, res) => {
   res.json({ msg: 'test route' });
 });
 
+// API Routes
 app.use('/api/v1/jobs', authenticateUser, jobRouter);
 app.use('/api/v1/users', authenticateUser, userRouter);
 app.use('/api/v1/auth', authRouter);
 
-app.get('*', (req, res) => {
-  res.sendFile(path.resolve(__dirname, '../client/dist', 'index.html'));
-});
-
+// Undefined API routes ke liye 404
 app.use('*', (req, res) => {
-  res.status(404).json({ msg: 'not found' });
+  res.status(404).json({ msg: 'Route not found' });
 });
 
+// Error handling middleware
 app.use(errorHandlerMiddleware);
 
 const port = process.env.PORT || 5100;
